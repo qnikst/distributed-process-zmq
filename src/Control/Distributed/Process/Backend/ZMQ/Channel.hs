@@ -176,7 +176,7 @@ class SocketSend (x :: * -> *) where
   registerSend :: Serializable a 
               => ZMQTransport 
               -> x a 
-              -> IO (Maybe (SendPortEx (SendValue x a)))
+              -> Process (Maybe (SendPortEx (SendValue x a)))
 
 ---------------------------------------------------------------------------------
 -- Receive socket instances
@@ -259,27 +259,30 @@ instance SocketReceive (ChanAddrOut ZMQ.Rep) where
 
 instance SocketSend (ChanAddrIn ZMQ.Pub) where
     type SendValue (ChanAddrIn ZMQ.Pub) a = a
-    registerSend t (ChanAddrIn address) = withMVar (_transportState t) $ \case
-      TransportValid v -> do
-        s <- ZMQ.socket (_transportContext v) ZMQ.Pub
-        ZMQ.bind s (B8.unpack address)
-        s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
-        return . Just $ SendPortEx $ sendInner t s'
-      TransportClosed -> return Nothing 
+    registerSend t (ChanAddrIn address) = liftIO $ 
+      withMVar (_transportState t) $ \case
+        TransportValid v -> do
+          s <- ZMQ.socket (_transportContext v) ZMQ.Pub
+          ZMQ.bind s (B8.unpack address)
+          s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
+          return . Just $ SendPortEx $ sendInner t s'
+        TransportClosed -> return Nothing 
 
 instance SocketSend (ChanAddrIn ZMQ.Push) where
     type SendValue (ChanAddrIn ZMQ.Push) a = a
-    registerSend t (ChanAddrIn address) = withMVar (_transportState t) $ \case
-      TransportValid v -> do
-        s <- ZMQ.socket (_transportContext v) ZMQ.Push
-        ZMQ.bind s (B8.unpack address)
-        s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
-        return . Just $ SendPortEx $ sendInner t s'
-      TransportClosed -> return Nothing 
+    registerSend t (ChanAddrIn address) = liftIO $
+      withMVar (_transportState t) $ \case
+        TransportValid v -> do
+          s <- ZMQ.socket (_transportContext v) ZMQ.Push
+          ZMQ.bind s (B8.unpack address)
+          s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
+          return . Just $ SendPortEx $ sendInner t s'
+        TransportClosed -> return Nothing 
 
 instance SocketSend (ChanAddrIn ZMQ.Req) where
     type SendValue (ChanAddrIn ZMQ.Req) a = (a, a -> IO ())
-    registerSend t ch@(ChanAddrIn address) = withMVar (_transportState t) $ \case
+    registerSend t ch@(ChanAddrIn address) = liftIO $ 
+      withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Req
           ZMQ.connect s (B8.unpack address)

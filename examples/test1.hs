@@ -20,10 +20,10 @@ test :: ZMQTransport -> Process ()
 test transport = do
   -- Pub->Sub
   (chIn, chOut) <- pair (Pub, Sub) (PairOptions (Just "tcp://127.0.0.1:5423"))
-  Just port <- liftIO $ registerSend transport chIn
+  Just port <- registerSend transport chIn
   replicateM 10 $ spawnLocal $ do
       us <- getSelfPid
-      Just ch <- liftIO $ registerReceive transport (SubReceive ("":|[])) chOut
+      Just ch <- registerReceive transport (SubReceive ("":|[])) chOut
       x <- try $ replicateM_ 10 $ do
         v  <- receiveChan ch
         liftIO $ printf "[%s] %i\n" (show us) (v::Int)
@@ -35,10 +35,10 @@ test transport = do
   -- Push->Pull                
   liftIO $ putStrLn "PushPull"
   (chIn1, chOut1) <- pair (Push,Pull) (PairOptions (Just "tcp://127.0.0.1:5789"))
-  Just port1 <- liftIO $ registerSend transport chIn1
+  Just port1 <- registerSend transport chIn1
   replicateM 10 $ spawnLocal $ do
       us <- getSelfPid
-      Just ch <- liftIO $ registerReceive transport PullReceive chOut1
+      Just ch <- registerReceive transport PullReceive chOut1
       liftIO $ yield
       x <- try $ replicateM_ 100 $ do
         v  <- receiveChan ch
@@ -55,10 +55,10 @@ test transport = do
   (chIn2, chOut2) <- pair (Req, Rep) (PairOptions (Just "tcp://127.0.0.1:5424"))
   replicateM_ 10 $ spawnLocal $ do
       us <- getSelfPid
-      Just ch <- liftIO $ registerSend transport chIn2 
+      Just ch <- registerSend transport chIn2 
       liftIO $ sendEx ch (show us, print)
       return ()
-  Just ch <- liftIO $ registerReceive transport ReqReceive chOut2
+  Just ch <- registerReceive transport ReqReceive chOut2
   replicateM_ 10 $ do
     f <- receiveChanEx ch
     liftIO $ f (\x -> return $ Prelude.reverse x)
