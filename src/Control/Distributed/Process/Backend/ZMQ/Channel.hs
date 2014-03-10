@@ -7,13 +7,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# GHC-OPTIONS -fno-warn-orphans #-}
 -- | Module provides an extended version of channels.
 --
 -- Technitial depts:
 --
 --    [ ] correct socket close
---
---    [ ] correct transport close
 --
 --    [ ] ability to use generated address
 --
@@ -28,7 +27,7 @@ module Control.Distributed.Process.Backend.ZMQ.Channel
     -- * Basic API
     -- ** Channel pairs
     -- $channel-pairs
-    SocketPair
+    ChannelPair
   , pair
   , singleIn
   , singleOut
@@ -45,7 +44,6 @@ module Control.Distributed.Process.Backend.ZMQ.Channel
 import           Control.Applicative
 import qualified Control.Concurrent.Async as Async
 import           Control.Concurrent.STM
-import           Control.Concurrent.STM.TQueue
 import           Control.Concurrent.MVar
 import           Control.Distributed.Process
 import           Control.Distributed.Process.Serializable
@@ -54,7 +52,6 @@ import qualified Control.Exception as Exception
 import           Control.Monad
       ( forever 
       )
-import           Control.Monad.IO.Class
 import           Data.Binary
 import           Data.ByteString
 import qualified Data.ByteString.Lazy as BL
@@ -65,43 +62,39 @@ import           Data.List.NonEmpty
       )
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Typeable
-import qualified Data.Map as Map
 
 import           GHC.Generics
 import qualified System.ZMQ4 as ZMQ
 import           Network.Transport
-import           Network.Transport.ZMQ
 import           Network.Transport.ZMQ.Types
 
+import           Control.Distributed.Process.ChannelEx
 import           Control.Distributed.Process.Backend.ZMQ.Missing
-
-data Proxy1 a = Proxy1
 
 -- $channel-pairs
 -- Channel pairs provides type safe way to create a pair of sockets 
 -- the instances and handle all internal information that is required
 -- to handle such channels.
 
-
--- | List of available socket pairs.
-class SocketPair a b
-
-instance SocketPair ZMQ.Pub  ZMQ.Sub
-instance SocketPair ZMQ.Push ZMQ.Pull
-instance SocketPair ZMQ.Req  ZMQ.Rep
-instance SocketPair ZMQ.Dealer ZMQ.Rep
-instance SocketPair ZMQ.Dealer ZMQ.Router
-instance SocketPair ZMQ.Dealer ZMQ.Dealer
-instance SocketPair ZMQ.Router ZMQ.Router
-instance SocketPair ZMQ.Pair   ZMQ.Pair
-
--- | Helper proxy type
-data Proxy a = Proxy
+instance ChannelPair ZMQ.Pub  ZMQ.Sub
+instance ChannelPair ZMQ.Push ZMQ.Pull
+instance ChannelPair ZMQ.Req  ZMQ.Rep
+instance ChannelPair ZMQ.Dealer ZMQ.Rep
+instance ChannelPair ZMQ.Dealer ZMQ.Router
+instance ChannelPair ZMQ.Dealer ZMQ.Dealer
+instance ChannelPair ZMQ.Router ZMQ.Router
+instance ChannelPair ZMQ.Pair   ZMQ.Pair
 
 type SocketAddress = ByteString
 
 data ChanAddrIn  t a = ChanAddrIn SocketAddress deriving (Generic, Typeable)
 data ChanAddrOut t a = ChanAddrOut SocketAddress deriving (Generic, Typeable)
+
+mkProxyChIn :: ChanAddrIn x a -> Proxy1 a
+mkProxyChIn _ = Proxy1
+
+mkProxyChOut :: ChanAddrOut x a -> Proxy1 a
+mkProxyChOut _ = Proxy1
 
 data ZMQSocket a = ZMQSocket 
       { socketState :: MVar (ZMQSocketState a)
@@ -119,13 +112,6 @@ instance Typeable a => Serializable (ChanAddrIn  ZMQ.Push a) where
 instance Typeable a => Serializable (ChanAddrIn  ZMQ.Req  a) where
 instance Typeable a => Serializable (ChanAddrOut ZMQ.Sub  a) where
 
--- | Extended send port provides an additional functionatility to 
--- 'SendPort' as a result it allow to overload send function with
--- new logic, and make it much more flexible.
-data SendPortEx a = SendPortEx
-       { sendEx :: a -> IO (Either (TransportError SendErrorCode) ()) }
-      
-
 data PairOptions  = PairOptions
       { poAddress :: Maybe ByteString -- ^ Override transport socket address.
       }
@@ -134,7 +120,7 @@ data PairOptions  = PairOptions
 -- converted into a real sockets with 'registerSend' or 'registerReceive'.
 -- User will have to covert local \'ticket\' into socket immediatelly,
 -- so remote side can connect to it.
-pair :: SocketPair t1 t2
+pair :: ChannelPair t1 t2
      => (t1, t2)      -- ^ Socket types,
      -> PairOptions   -- ^ Configuration options.
      -> Process (ChanAddrIn t1 a, ChanAddrOut t2 a)
@@ -145,7 +131,7 @@ pair _ o = case poAddress o of
 -- | Create output channel, when remote side is outside distributed-process
 -- cluster. Serializable restriction says that the return type of socket is
 -- a \'client\' for remote server.
-singleOut :: (SocketPair t1 t2, Serializable (ChanAddrIn t1 a))
+singleOut :: (ChannelPair t1 t2, Serializable (ChanAddrIn t1 a))
           => t1
           -> t2
           -> SocketAddress
@@ -154,37 +140,21 @@ singleOut _ _ addr = ChanAddrOut addr
 
 -- | Create input channel, when remote side is outside distributed-process
 -- cluster
-singleIn :: (SocketPair t1 t2, Serializable (ChanAddrOut t2 a))
+singleIn :: (ChannelPair t1 t2, Serializable (ChanAddrOut t2 a))
          => t1
          -> t2
          -> SocketAddress
          -> ChanAddrIn t2 a
 singleIn _ _ addr = ChanAddrIn addr
 
-class SocketReceive (x :: * -> *) where
-  data ReceiveOptions x  :: *
-  type ReceiveResult x y :: *
-  -- | Create receive socket.
-  registerReceive :: Serializable a 
-                  => ZMQTransport
-                  -> ReceiveOptions x
-                  -> x a
-                  -> Process (Maybe (ReceivePort (ReceiveResult x a)))
-
-class SocketSend (x :: * -> *) where
-  type SendValue x y :: *
-  registerSend :: Serializable a 
-              => ZMQTransport 
-              -> x a 
-              -> Process (Maybe (SendPortEx (SendValue x a)))
-
 ---------------------------------------------------------------------------------
 -- Receive socket instances
 ---------------------------------------------------------------------------------
 
-instance SocketReceive (ChanAddrOut ZMQ.Sub) where
-  data ReceiveOptions (ChanAddrOut ZMQ.Sub)  = SubReceive (NonEmpty ByteString)
-  type ReceiveResult (ChanAddrOut ZMQ.Sub) a = a
+instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
+  type ReceiveTransport (ChanAddrOut ZMQ.Sub)   = ZMQTransport
+  type ReceiveResult    (ChanAddrOut ZMQ.Sub) a = a
+  data ReceiveOptions   (ChanAddrOut ZMQ.Sub)   = SubReceive (NonEmpty ByteString)
   registerReceive t (SubReceive sbs) ch@(ChanAddrOut address) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
@@ -195,19 +165,17 @@ instance SocketReceive (ChanAddrOut ZMQ.Sub) where
           Async.async $ do
             x <- Exception.try $ forever $ do
               lst <- ZMQ.receiveMulti s
-              atomically $ writeTQueue q (decodeList' (mkProxy1 ch) lst)
+              atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
             case x of
               Left e -> print (e::Exception.SomeException)
               Right _ -> return ()
           return . Just $ ReceivePort $ readTQueue q
       TransportClosed -> return Nothing
-    where
-      mkProxy1 :: ChanAddrOut x a -> Proxy1 a
-      mkProxy1 _ = Proxy1
 
-instance SocketReceive (ChanAddrOut ZMQ.Pull) where
-  data ReceiveOptions (ChanAddrOut ZMQ.Pull) = PullReceive 
-  type ReceiveResult (ChanAddrOut ZMQ.Pull) a = a
+instance ChannelReceive (ChanAddrOut ZMQ.Pull) where
+  type ReceiveTransport (ChanAddrOut ZMQ.Pull)   = ZMQTransport
+  type ReceiveResult    (ChanAddrOut ZMQ.Pull) a = a
+  data ReceiveOptions   (ChanAddrOut ZMQ.Pull)   = PullReceive 
   registerReceive t PullReceive ch@(ChanAddrOut address) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
@@ -217,19 +185,17 @@ instance SocketReceive (ChanAddrOut ZMQ.Pull) where
         Async.async $ do
           x <- Exception.try $ forever $ do
               lst <- ZMQ.receiveMulti s
-              atomically $ writeTQueue q (decodeList' (mkProxy1 ch) lst)
+              atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
           case x of
             Left e  -> print (e::Exception.SomeException)
             Right _ -> return ()
         return . Just $ ReceivePort $ readTQueue q
       TransportClosed -> return Nothing
-    where
-      mkProxy1 :: ChanAddrOut x a -> Proxy1 a
-      mkProxy1 _ = Proxy1
 
-instance SocketReceive (ChanAddrOut ZMQ.Rep) where
-  data ReceiveOptions (ChanAddrOut ZMQ.Rep)   = ReqReceive
-  type ReceiveResult  (ChanAddrOut ZMQ.Rep) a = (a -> IO a) -> IO ()
+instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
+  type ReceiveTransport (ChanAddrOut ZMQ.Rep)   = ZMQTransport
+  type ReceiveResult    (ChanAddrOut ZMQ.Rep) a = (a -> IO a) -> IO ()
+  data ReceiveOptions   (ChanAddrOut ZMQ.Rep)   = ReqReceive
   registerReceive t ReqReceive ch@(ChanAddrOut address) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
@@ -241,7 +207,7 @@ instance SocketReceive (ChanAddrOut ZMQ.Rep) where
           x <- Exception.try $ forever $ do
                 lst <- ZMQ.receiveMulti s
                 atomically $ putTMVar req $ \f -> do 
-                    y <- f $ decodeList' (mkProxy1 ch) lst
+                    y <- f $ decodeList' (mkProxyChOut ch) lst
                     liftIO $ atomically $ putTMVar rep $ encodeList' y
                 ZMQ.sendMulti s =<< (atomically $ takeTMVar rep)
           case x of
@@ -249,16 +215,14 @@ instance SocketReceive (ChanAddrOut ZMQ.Rep) where
             Right _ -> return ()
         return . Just $ ReceivePort $ takeTMVar req
       TransportClosed -> return Nothing
-    where
-      mkProxy1 :: ChanAddrOut x a -> Proxy1 a
-      mkProxy1 _ = Proxy1
 
 ---------------------------------------------------------------------------------
 -- Send socket instances
 ---------------------------------------------------------------------------------
 
-instance SocketSend (ChanAddrIn ZMQ.Pub) where
-    type SendValue (ChanAddrIn ZMQ.Pub) a = a
+instance ChannelSend (ChanAddrIn ZMQ.Pub) where
+    type SendTransport (ChanAddrIn ZMQ.Pub)   = ZMQTransport
+    type SendValue     (ChanAddrIn ZMQ.Pub) a = a
     registerSend t (ChanAddrIn address) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
@@ -268,8 +232,9 @@ instance SocketSend (ChanAddrIn ZMQ.Pub) where
           return . Just $ SendPortEx $ sendInner t s'
         TransportClosed -> return Nothing 
 
-instance SocketSend (ChanAddrIn ZMQ.Push) where
-    type SendValue (ChanAddrIn ZMQ.Push) a = a
+instance ChannelSend (ChanAddrIn ZMQ.Push) where
+    type SendTransport (ChanAddrIn ZMQ.Push)   = ZMQTransport
+    type SendValue     (ChanAddrIn ZMQ.Push) a = a
     registerSend t (ChanAddrIn address) = liftIO $
       withMVar (_transportState t) $ \case
         TransportValid v -> do
@@ -279,8 +244,9 @@ instance SocketSend (ChanAddrIn ZMQ.Push) where
           return . Just $ SendPortEx $ sendInner t s'
         TransportClosed -> return Nothing 
 
-instance SocketSend (ChanAddrIn ZMQ.Req) where
-    type SendValue (ChanAddrIn ZMQ.Req) a = (a, a -> IO ())
+instance ChannelSend (ChanAddrIn ZMQ.Req) where
+    type SendTransport (ChanAddrIn ZMQ.Req)   = ZMQTransport
+    type SendValue     (ChanAddrIn ZMQ.Req) a = (a, a -> IO ())
     registerSend t ch@(ChanAddrIn address) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
@@ -291,13 +257,10 @@ instance SocketSend (ChanAddrIn ZMQ.Req) where
             ex <- sendInner t s' a
             case ex of 
               Right _ -> do xbs <- ZMQ.receiveMulti s
-                            fa $ decodeList' (mkProxy1 ch) xbs
+                            fa $ decodeList' (mkProxyChIn ch) xbs
                             return $ Right ()
               Left e -> return $ Left e
         TransportClosed -> return Nothing 
-      where
-        mkProxy1 :: ChanAddrIn x a -> Proxy1 a
-        mkProxy1 _ = Proxy1
 
 sendInner :: (ZMQ.Sender s, Serializable a) => ZMQTransport -> ZMQSocket (ZMQ.Socket s) -> a -> IO (Either (TransportError SendErrorCode) ())
 sendInner transport socket msg = withMVar (socketState socket) $ \case
@@ -305,10 +268,6 @@ sendInner transport socket msg = withMVar (socketState socket) $ \case
     TransportValid{} -> ZMQ.sendMulti s (encodeList' msg) >> return (Right ())
     TransportClosed  -> return $ Left $ TransportError SendFailed "Transport is closed."
   ZMQSocketClosed  -> return $ Left $ TransportError SendClosed "Socket is closed."
-
--- | Like 'receiveChan' but doesn't have Binary restriction over value.
-receiveChanEx :: ReceivePort x -> Process x
-receiveChanEx (ReceivePort f) = liftIO $ atomically f
 
 decodeList' :: Binary a => Proxy1 a -> [ByteString] -> a
 decodeList' _ = decode . BL.fromChunks

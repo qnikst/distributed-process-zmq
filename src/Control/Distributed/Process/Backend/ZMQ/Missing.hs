@@ -10,7 +10,7 @@
 --   * Typeable instances for zeromq4-haskell
 --
 module Control.Distributed.Process.Backend.ZMQ.Missing
-  (
+  ( Proxy1(..)
   ) where
 
 import           Data.Typeable
@@ -19,3 +19,5 @@ import qualified System.ZMQ4 as ZMQ
 deriving instance Typeable ZMQ.Push
 deriving instance Typeable ZMQ.Req
 deriving instance Typeable ZMQ.Sub
+
+data Proxy1 a = Proxy1
