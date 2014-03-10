@@ -89,11 +89,11 @@ class SocketPair a b
 instance SocketPair ZMQ.Pub  ZMQ.Sub
 instance SocketPair ZMQ.Push ZMQ.Pull
 instance SocketPair ZMQ.Req  ZMQ.Rep
--- instance SocketPair Dealer Rep
--- instance SocketPair Dealer Router
--- instance SocketPair Dealer Dealer
--- instance SocketPair Router Router
--- instance SocketPair Pair Pair
+instance SocketPair ZMQ.Dealer ZMQ.Rep
+instance SocketPair ZMQ.Dealer ZMQ.Router
+instance SocketPair ZMQ.Dealer ZMQ.Dealer
+instance SocketPair ZMQ.Router ZMQ.Router
+instance SocketPair ZMQ.Pair   ZMQ.Pair
 
 -- | Helper proxy type
 data Proxy a = Proxy
