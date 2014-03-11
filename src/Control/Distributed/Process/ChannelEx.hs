@@ -33,6 +33,8 @@
 module Control.Distributed.Process.ChannelEx 
   ( SendPortEx(..)
   , ReceivePortEx(..)
+  , extendSendPort
+  , extendReceivePort
   , receiveChanEx
   , ChannelPair
   , ChannelReceive(..)
@@ -64,6 +66,13 @@ data SendPortEx a = SendPortEx
        , closeSendEx :: Process ()                                          -- ^ Close channel.
        }
 
+-- | Extend send port
+extendSendPort :: Serializable a => SendPort a -> SendPortEx a
+extendSendPort ch = SendPortEx
+      { sendEx = \x -> sendChan ch x >> return (Right ())
+      , closeSendEx = return ()
+      }
+
 -- defaultSendPort :: SendPort a -> SendPortEx a
 -- defaultSendPort ch = SendPortEx (sendChan ch)
 
@@ -72,6 +81,12 @@ data ReceivePortEx a = ReceivePortEx
       { receiveEx :: ReceivePort a
       , closeReceiveEx :: Process ()
       }
+
+extendReceivePort :: ReceivePort a -> ReceivePortEx a
+extendReceivePort ch  = ReceivePortEx
+    { receiveEx = ch
+    , closeReceiveEx = return ()
+    }
 
 -- | Like 'receiveChan' but doesn't have Binary restriction over value.
 receiveChanEx :: ReceivePortEx x -> Process x
