@@ -12,8 +12,6 @@
 --
 -- Technitial depts:
 --
---    [ ] correct socket close
---
 --    [ ] ability to use generated address
 --
 --    [ ] exception handling mechanism
@@ -156,65 +154,71 @@ instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
   type ReceiveTransport (ChanAddrOut ZMQ.Sub)   = ZMQTransport
   type ReceiveResult    (ChanAddrOut ZMQ.Sub) a = a
   data ReceiveOptions   (ChanAddrOut ZMQ.Sub)   = SubReceive (NonEmpty ByteString)
-  registerReceive t (SubReceive sbs) ch@(ChanAddrOut address) = liftIO $
+  registerReceive t (SubReceive sbs) ch@(ChanAddrOut addr) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
           q <- newTQueueIO
           s <- ZMQ.socket (_transportContext v) ZMQ.Sub
-          ZMQ.connect s (B8.unpack address)
+          ZMQ.connect s (B8.unpack addr)
           Foldable.mapM_ (ZMQ.subscribe s) sbs
-          Async.async $ do
-            x <- Exception.try $ forever $ do
+          tid <- Async.async $ forever $ do
               lst <- ZMQ.receiveMulti s
               atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
-            case x of
-              Left e -> print (e::Exception.SomeException)
-              Right _ -> return ()
-          return . Just $ ReceivePort $ readTQueue q
+          return . Just $ ReceivePortEx 
+            { receiveEx = ReceivePort $ readTQueue q
+            , closeReceiveEx = liftIO $ do
+                Async.cancel tid
+                ZMQ.disconnect s (B8.unpack addr)
+                ZMQ.close s
+            }
       TransportClosed -> return Nothing
 
 instance ChannelReceive (ChanAddrOut ZMQ.Pull) where
   type ReceiveTransport (ChanAddrOut ZMQ.Pull)   = ZMQTransport
   type ReceiveResult    (ChanAddrOut ZMQ.Pull) a = a
   data ReceiveOptions   (ChanAddrOut ZMQ.Pull)   = PullReceive 
-  registerReceive t PullReceive ch@(ChanAddrOut address) = liftIO $
+  registerReceive t PullReceive ch@(ChanAddrOut addr) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
         q <- newTQueueIO
         s <- ZMQ.socket (_transportContext v) ZMQ.Pull
-        ZMQ.connect s (B8.unpack address)
-        Async.async $ do
-          x <- Exception.try $ forever $ do
-              lst <- ZMQ.receiveMulti s
-              atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
-          case x of
-            Left e  -> print (e::Exception.SomeException)
-            Right _ -> return ()
-        return . Just $ ReceivePort $ readTQueue q
+        ZMQ.connect s (B8.unpack addr)
+        tid <- Async.async $ forever $ do
+            lst <- ZMQ.receiveMulti s
+            atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
+        return . Just $ ReceivePortEx
+            { receiveEx = ReceivePort $ readTQueue q
+            , closeReceiveEx = liftIO $ do
+                Async.cancel tid
+                ZMQ.disconnect s (B8.unpack addr)
+                ZMQ.close s
+            }
       TransportClosed -> return Nothing
 
 instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
   type ReceiveTransport (ChanAddrOut ZMQ.Rep)   = ZMQTransport
   type ReceiveResult    (ChanAddrOut ZMQ.Rep) a = (a -> IO a) -> IO ()
   data ReceiveOptions   (ChanAddrOut ZMQ.Rep)   = ReqReceive
-  registerReceive t ReqReceive ch@(ChanAddrOut address) = liftIO $
+  registerReceive t ReqReceive ch@(ChanAddrOut addr) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
         req <- newEmptyTMVarIO
         rep <- newEmptyTMVarIO
         s <- ZMQ.socket (_transportContext v) ZMQ.Rep
-        ZMQ.bind s (B8.unpack address)
-        Async.async $ do
-          x <- Exception.try $ forever $ do
-                lst <- ZMQ.receiveMulti s
-                atomically $ putTMVar req $ \f -> do 
-                    y <- f $ decodeList' (mkProxyChOut ch) lst
-                    liftIO $ atomically $ putTMVar rep $ encodeList' y
-                ZMQ.sendMulti s =<< (atomically $ takeTMVar rep)
-          case x of
-            Left e  -> print (e::Exception.SomeException)
-            Right _ -> return ()
-        return . Just $ ReceivePort $ takeTMVar req
+        ZMQ.bind s (B8.unpack addr)
+        tid <- Async.async $ forever $ do
+            lst <- ZMQ.receiveMulti s
+            atomically $ putTMVar req $ \f -> do 
+              y <- f $ decodeList' (mkProxyChOut ch) lst
+              liftIO $ atomically $ putTMVar rep $ encodeList' y
+            ZMQ.sendMulti s =<< (atomically $ takeTMVar rep)
+        return . Just $ ReceivePortEx
+            { receiveEx = ReceivePort $ takeTMVar req
+            , closeReceiveEx = liftIO $ do
+                Async.cancel tid
+                ZMQ.disconnect s (B8.unpack addr)
+                ZMQ.close s
+            }
       TransportClosed -> return Nothing
 
 ---------------------------------------------------------------------------------

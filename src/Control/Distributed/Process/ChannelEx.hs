@@ -67,14 +67,15 @@ data SendPortEx a = SendPortEx
 -- defaultSendPort :: SendPort a -> SendPortEx a
 -- defaultSendPort ch = SendPortEx (sendChan ch)
 
--- | ReceivePortEx remains the same as
--- 'Control.Distributed.Process.ReceivePort', type synonym was added
--- for <..>.
-type ReceivePortEx a = ReceivePort a
+-- | ReceivePortEx contains old port and close function.
+data ReceivePortEx a = ReceivePortEx
+      { receiveEx :: ReceivePort a
+      , closeReceiveEx :: Process ()
+      }
 
 -- | Like 'receiveChan' but doesn't have Binary restriction over value.
 receiveChanEx :: ReceivePortEx x -> Process x
-receiveChanEx (ReceivePort f) = liftIO $ atomically f
+receiveChanEx (ReceivePortEx (ReceivePort f) _) = liftIO $ atomically f
 
 -- | Register receive socket
 class ChannelReceive (x :: * -> *) where
@@ -86,7 +87,7 @@ class ChannelReceive (x :: * -> *) where
                   => ReceiveTransport x
                   -> ReceiveOptions x
                   -> x a
-                  -> Process (Maybe (ReceivePort (ReceiveResult x a)))
+                  -> Process (Maybe (ReceivePortEx (ReceiveResult x a)))
 
 class ChannelSend (x :: * -> *) where
   type SendTransport x :: *

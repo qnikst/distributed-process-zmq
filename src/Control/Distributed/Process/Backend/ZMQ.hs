@@ -4,6 +4,8 @@
 module Control.Distributed.Process.Backend.ZMQ 
   ( fakeTransport
   , module Control.Distributed.Process.Backend.ZMQ.Channel
+  , ReceivePortEx(..)
+  , SendPortEx(..)
   ) where
 
 import           Control.Applicative
@@ -15,6 +17,7 @@ import           Data.ByteString
       )
 import qualified Data.Map as Map
 
+import           Control.Distributed.Process.ChannelEx
 import           Control.Distributed.Process.Backend.ZMQ.Channel
 import           Network.Transport.ZMQ.Types
 import qualified System.ZMQ4 as ZMQ
