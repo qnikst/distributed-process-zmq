@@ -32,7 +32,7 @@ test transport = do
         Right _ -> return ()
         Left e  -> liftIO $ print (e::SomeException)
   liftIO $ threadDelay 1000000
-  mapM_ (sendEx port) [1..100::Int]
+  mapM_ (sendEx port) [("", x) | x <- [1..100::Int]]
   closeSendEx port
   -- Push->Pull                
   liftIO $ putStrLn "PushPull"

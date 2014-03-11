@@ -8,17 +8,8 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
--- | Module provides an extended version of channels.
---
--- Technitial depts:
---
---    [ ] ability to use generated address
---
---    [ ] exception handling mechanism
---
---    [ ] return errors
---
---    [ ] use different types in chan
+-- | Module provides an extended version of channels based on 
+-- network-transport-zmq.
 --
 module Control.Distributed.Process.Backend.ZMQ.Channel
   ( 
@@ -224,7 +215,7 @@ instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
 
 instance ChannelSend (ChanAddrIn ZMQ.Pub) where
     type SendTransport (ChanAddrIn ZMQ.Pub)   = ZMQTransport
-    type SendValue     (ChanAddrIn ZMQ.Pub) a = a
+    type SendValue     (ChanAddrIn ZMQ.Pub) a = (ByteString, a)
     registerSend t (ChanAddrIn addr) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
@@ -232,7 +223,7 @@ instance ChannelSend (ChanAddrIn ZMQ.Pub) where
           ZMQ.bind s (B8.unpack addr)
           st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
           return . Just $ SendPortEx
-            { sendEx = liftIO . (sendInner t (ZMQSocket st))
+            { sendEx = \(p,a) -> liftIO $ sendInner t (ZMQSocket st) (encodeListPrefix [p] a)
             , closeSendEx = liftIO $ do
                 void $ swapMVar st ZMQSocketClosed
                 ZMQ.unbind s (B8.unpack addr)
@@ -250,7 +241,7 @@ instance ChannelSend (ChanAddrIn ZMQ.Push) where
           ZMQ.bind s (B8.unpack addr)
           st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
           return . Just $ SendPortEx 
-            { sendEx = liftIO . (sendInner t (ZMQSocket st))
+            { sendEx = liftIO . (sendInner t (ZMQSocket st) . encodeList')
             , closeSendEx = liftIO $ do 
                 void $ swapMVar st ZMQSocketClosed
                 ZMQ.unbind s (B8.unpack addr)
@@ -269,7 +260,7 @@ instance ChannelSend (ChanAddrIn ZMQ.Req) where
           st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
           return . Just $ SendPortEx 
             { sendEx = \(a, fa) -> liftIO $ do
-                ex <- sendInner t (ZMQSocket st) a
+                ex <- sendInner t (ZMQSocket st) (encodeList' a)
                 case ex of 
                   Right _ -> do
                     xbs <- ZMQ.receiveMulti s
@@ -283,15 +274,21 @@ instance ChannelSend (ChanAddrIn ZMQ.Req) where
             }
         TransportClosed -> return Nothing 
 
-sendInner :: (ZMQ.Sender s, Serializable a) => ZMQTransport -> ZMQSocket (ZMQ.Socket s) -> a -> IO (Either (TransportError SendErrorCode) ())
+sendInner :: ZMQ.Sender s => ZMQTransport -> ZMQSocket (ZMQ.Socket s) -> NonEmpty ByteString -> IO (Either (TransportError SendErrorCode) ())
 sendInner transport socket msg = withMVar (socketState socket) $ \case
   ZMQSocketValid (ValidZMQSocket s) -> withMVar (_transportState transport) $ \case
-    TransportValid{} -> ZMQ.sendMulti s (encodeList' msg) >> return (Right ())
+    TransportValid{} -> ZMQ.sendMulti s msg >> return (Right ())
     TransportClosed  -> return $ Left $ TransportError SendFailed "Transport is closed."
   ZMQSocketClosed  -> return $ Left $ TransportError SendClosed "Socket is closed."
 
 decodeList' :: Binary a => Proxy1 a -> [ByteString] -> a
 decodeList' _ = decode . BL.fromChunks
+
+encodeListPrefix :: Binary a => [ByteString] -> a -> NonEmpty ByteString
+encodeListPrefix [] x     = encodeList' x
+encodeListPrefix (p:ps) x 
+  | B8.null p = encodeListPrefix ps x
+  | otherwise = p :| (ps++BL.toChunks (encode x))
 
 encodeList' :: Binary a => a -> NonEmpty ByteString
 encodeList' x = case BL.toChunks (encode x) of
