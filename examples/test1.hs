@@ -31,7 +31,8 @@ test transport = do
         Right _ -> return ()
         Left e  -> liftIO $ print (e::SomeException)
   liftIO $ threadDelay 1000000
-  mapM_ (liftIO . sendEx port) [1..100::Int]
+  mapM_ (sendEx port) [1..100::Int]
+  closeSendEx port
   -- Push->Pull                
   liftIO $ putStrLn "PushPull"
   (chIn1, chOut1) <- pair (Push,Pull) (PairOptions (Just "tcp://127.0.0.1:5789"))
@@ -48,7 +49,7 @@ test transport = do
         Left e  -> liftIO $ print (e::SomeException)
   liftIO $ yield
   liftIO $ threadDelay 1000000
-  mapM_ (\i -> do liftIO $ putStr ":" >>  sendEx port1 i) [1..100::Int]
+  mapM_ (sendEx port1) [1..100::Int]
   liftIO $ threadDelay 1000000
   -- Req-Rep
   liftIO $ putStrLn "ReqRep"
@@ -56,7 +57,7 @@ test transport = do
   replicateM_ 10 $ spawnLocal $ do
       us <- getSelfPid
       Just ch <- registerSend transport chIn2 
-      liftIO $ sendEx ch (show us, print)
+      sendEx ch (show us, print)
       return ()
   Just ch <- registerReceive transport ReqReceive chOut2
   replicateM_ 10 $ do

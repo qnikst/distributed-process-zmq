@@ -60,7 +60,9 @@ class ChannelPair i o
 -- 'SendPort' as a result it allow to overload send function with
 -- new logic, and make it much more flexible.
 data SendPortEx a = SendPortEx
-       { sendEx :: a -> IO (Either (TransportError SendErrorCode) ()) }
+       { sendEx :: a -> Process (Either (TransportError SendErrorCode) ())  -- ^ Send message.
+       , closeSendEx :: Process ()                                          -- ^ Close channel.
+       }
 
 -- defaultSendPort :: SendPort a -> SendPortEx a
 -- defaultSendPort ch = SendPortEx (sendChan ch)

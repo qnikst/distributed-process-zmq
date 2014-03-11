@@ -51,6 +51,7 @@ import           Control.Distributed.Process.Internal.Types
 import qualified Control.Exception as Exception
 import           Control.Monad
       ( forever 
+      , void
       )
 import           Data.Binary
 import           Data.ByteString
@@ -87,7 +88,7 @@ instance ChannelPair ZMQ.Pair   ZMQ.Pair
 
 type SocketAddress = ByteString
 
-data ChanAddrIn  t a = ChanAddrIn SocketAddress deriving (Generic, Typeable)
+data ChanAddrIn  t a = ChanAddrIn  SocketAddress deriving (Generic, Typeable)
 data ChanAddrOut t a = ChanAddrOut SocketAddress deriving (Generic, Typeable)
 
 mkProxyChIn :: ChanAddrIn x a -> Proxy1 a
@@ -223,43 +224,62 @@ instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
 instance ChannelSend (ChanAddrIn ZMQ.Pub) where
     type SendTransport (ChanAddrIn ZMQ.Pub)   = ZMQTransport
     type SendValue     (ChanAddrIn ZMQ.Pub) a = a
-    registerSend t (ChanAddrIn address) = liftIO $ 
+    registerSend t (ChanAddrIn addr) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Pub
-          ZMQ.bind s (B8.unpack address)
-          s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
-          return . Just $ SendPortEx $ sendInner t s'
+          ZMQ.bind s (B8.unpack addr)
+          st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
+          return . Just $ SendPortEx
+            { sendEx = liftIO . (sendInner t (ZMQSocket st))
+            , closeSendEx = liftIO $ do
+                void $ swapMVar st ZMQSocketClosed
+                ZMQ.unbind s (B8.unpack addr)
+                ZMQ.close  s
+            }
         TransportClosed -> return Nothing 
 
 instance ChannelSend (ChanAddrIn ZMQ.Push) where
     type SendTransport (ChanAddrIn ZMQ.Push)   = ZMQTransport
     type SendValue     (ChanAddrIn ZMQ.Push) a = a
-    registerSend t (ChanAddrIn address) = liftIO $
+    registerSend t (ChanAddrIn addr) = liftIO $
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Push
-          ZMQ.bind s (B8.unpack address)
-          s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
-          return . Just $ SendPortEx $ sendInner t s'
+          ZMQ.bind s (B8.unpack addr)
+          st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
+          return . Just $ SendPortEx 
+            { sendEx = liftIO . (sendInner t (ZMQSocket st))
+            , closeSendEx = liftIO $ do 
+                void $ swapMVar st ZMQSocketClosed
+                ZMQ.unbind s (B8.unpack addr)
+                ZMQ.close  s
+            }
         TransportClosed -> return Nothing 
 
 instance ChannelSend (ChanAddrIn ZMQ.Req) where
     type SendTransport (ChanAddrIn ZMQ.Req)   = ZMQTransport
     type SendValue     (ChanAddrIn ZMQ.Req) a = (a, a -> IO ())
-    registerSend t ch@(ChanAddrIn address) = liftIO $ 
+    registerSend t ch@(ChanAddrIn addr) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Req
-          ZMQ.connect s (B8.unpack address)
-          s' <- ZMQSocket <$> newMVar (ZMQSocketValid (ValidZMQSocket s))
-          return . Just $ SendPortEx $ \(a, fa) -> do
-            ex <- sendInner t s' a
-            case ex of 
-              Right _ -> do xbs <- ZMQ.receiveMulti s
-                            fa $ decodeList' (mkProxyChIn ch) xbs
-                            return $ Right ()
-              Left e -> return $ Left e
+          ZMQ.connect s (B8.unpack addr)
+          st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
+          return . Just $ SendPortEx 
+            { sendEx = \(a, fa) -> liftIO $ do
+                ex <- sendInner t (ZMQSocket st) a
+                case ex of 
+                  Right _ -> do
+                    xbs <- ZMQ.receiveMulti s
+                    fa $ decodeList' (mkProxyChIn ch) xbs
+                    return $ Right ()
+                  Left e -> return $ Left e
+            , closeSendEx = liftIO $ do
+                void $ swapMVar st ZMQSocketClosed
+                ZMQ.disconnect s (B8.unpack addr)
+                ZMQ.close  s
+            }
         TransportClosed -> return Nothing 
 
 sendInner :: (ZMQ.Sender s, Serializable a) => ZMQTransport -> ZMQSocket (ZMQ.Socket s) -> a -> IO (Either (TransportError SendErrorCode) ())
