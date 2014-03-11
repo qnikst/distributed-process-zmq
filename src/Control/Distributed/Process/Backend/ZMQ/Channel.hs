@@ -7,7 +7,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# GHC-OPTIONS -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Module provides an extended version of channels.
 --
 -- Technitial depts:
@@ -39,14 +39,12 @@ module Control.Distributed.Process.Backend.ZMQ.Channel
   , receiveChanEx
   ) where
 
-import           Control.Applicative
 import qualified Control.Concurrent.Async as Async
 import           Control.Concurrent.STM
 import           Control.Concurrent.MVar
 import           Control.Distributed.Process
 import           Control.Distributed.Process.Serializable
 import           Control.Distributed.Process.Internal.Types
-import qualified Control.Exception as Exception
 import           Control.Monad
       ( forever 
       , void
@@ -59,7 +57,6 @@ import qualified Data.Foldable as Foldable
 import           Data.List.NonEmpty
       ( NonEmpty(..)
       )
-import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Typeable
 
 import           GHC.Generics
