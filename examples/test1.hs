@@ -19,6 +19,7 @@ import Text.Printf
 test :: ZMQTransport -> Process ()
 test transport = do
   -- Pub->Sub
+  liftIO $ putStrLn "PubSub"
   (chIn, chOut) <- pair (Pub, Sub) (PairOptions (Just "tcp://127.0.0.1:5423"))
   Just port <- registerSend transport chIn
   replicateM 10 $ spawnLocal $ do
