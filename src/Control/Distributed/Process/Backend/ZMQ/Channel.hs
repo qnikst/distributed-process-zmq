@@ -74,8 +74,24 @@ instance ChannelPair ZMQ.Pair   ZMQ.Pair
 
 type SocketAddress = ByteString
 
-data ChanAddrIn  t a = ChanAddrIn  SocketAddress deriving (Generic, Typeable)
-data ChanAddrOut t a = ChanAddrOut SocketAddress deriving (Generic, Typeable)
+data ChanAddrIn  t a = ChanAddrIn  (SocketIn t)  SocketAddress deriving (Generic, Typeable)
+data ChanAddrOut t a = ChanAddrOut (SocketOut t) SocketAddress deriving (Generic, Typeable)
+
+instance (Binary (SocketIn s), Binary a) => Binary (ChanAddrIn s a)
+instance (Binary (SocketOut s), Binary a) => Binary (ChanAddrOut s a)
+
+newtype SocketIn s = SocketIn  { unSocketIn  :: s }
+
+instance Binary (SocketIn ZMQ.Pull) where
+  put = undefined
+  get = undefined
+
+newtype SocketOut a = SocketOut { unSocketOut :: a }
+
+instance Binary (SocketOut ZMQ.Sub) where
+  put = undefined
+  get = undefined
+
 
 mkProxyChIn :: ChanAddrIn x a -> Proxy1 a
 mkProxyChIn _ = Proxy1
@@ -92,12 +108,15 @@ data ZMQSocketState a = ZMQSocketValid  (ValidZMQSocket a)
 
 data ValidZMQSocket a = ValidZMQSocket a
 
+
 -- list of serializable sockets
+{-
 instance Binary (ChanAddrIn t a) where
 instance Binary (ChanAddrOut t a) where
 instance Typeable a => Serializable (ChanAddrIn  ZMQ.Push a) where
 instance Typeable a => Serializable (ChanAddrIn  ZMQ.Req  a) where
 instance Typeable a => Serializable (ChanAddrOut ZMQ.Sub  a) where
+-}
 
 data PairOptions  = PairOptions
       { poAddress :: Maybe ByteString -- ^ Override transport socket address.
@@ -111,8 +130,8 @@ pair :: ChannelPair t1 t2
      => (t1, t2)      -- ^ Socket types,
      -> PairOptions   -- ^ Configuration options.
      -> Process (ChanAddrIn t1 a, ChanAddrOut t2 a)
-pair _ o = case poAddress o of
-   Just addr -> return (ChanAddrIn addr, ChanAddrOut addr)
+pair (si,so) o = case poAddress o of
+   Just addr -> return (ChanAddrIn (SocketIn si) addr, ChanAddrOut (SocketOut so) addr)
    Nothing   -> error "Not yet implemented." 
 
 -- | Create output channel, when remote side is outside distributed-process
@@ -122,8 +141,8 @@ singleOut :: (ChannelPair t1 t2, Serializable (ChanAddrIn t1 a))
           => t1
           -> t2
           -> SocketAddress
-          -> ChanAddrOut t2 a
-singleOut _ _ addr = ChanAddrOut addr
+          -> ChanAddrOut t1 a
+singleOut so _ addr = ChanAddrOut (SocketOut so) addr
 
 -- | Create input channel, when remote side is outside distributed-process
 -- cluster
@@ -132,7 +151,7 @@ singleIn :: (ChannelPair t1 t2, Serializable (ChanAddrOut t2 a))
          -> t2
          -> SocketAddress
          -> ChanAddrIn t2 a
-singleIn _ _ addr = ChanAddrIn addr
+singleIn _ si addr = ChanAddrIn (SocketIn si) addr
 
 ---------------------------------------------------------------------------------
 -- Receive socket instances
@@ -142,7 +161,7 @@ instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
   type ReceiveTransport (ChanAddrOut ZMQ.Sub)   = ZMQTransport
   type ReceiveResult    (ChanAddrOut ZMQ.Sub) a = a
   data ReceiveOptions   (ChanAddrOut ZMQ.Sub)   = SubReceive (NonEmpty ByteString)
-  registerReceive t (SubReceive sbs) ch@(ChanAddrOut addr) = liftIO $
+  registerReceive t (SubReceive sbs) ch@(ChanAddrOut _ addr) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
           q <- newTQueueIO
@@ -165,7 +184,7 @@ instance ChannelReceive (ChanAddrOut ZMQ.Pull) where
   type ReceiveTransport (ChanAddrOut ZMQ.Pull)   = ZMQTransport
   type ReceiveResult    (ChanAddrOut ZMQ.Pull) a = a
   data ReceiveOptions   (ChanAddrOut ZMQ.Pull)   = PullReceive 
-  registerReceive t PullReceive ch@(ChanAddrOut addr) = liftIO $
+  registerReceive t PullReceive ch@(ChanAddrOut _ addr) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
         q <- newTQueueIO
@@ -187,7 +206,7 @@ instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
   type ReceiveTransport (ChanAddrOut ZMQ.Rep)   = ZMQTransport
   type ReceiveResult    (ChanAddrOut ZMQ.Rep) a = (a -> IO a) -> IO ()
   data ReceiveOptions   (ChanAddrOut ZMQ.Rep)   = ReqReceive
-  registerReceive t ReqReceive ch@(ChanAddrOut addr) = liftIO $
+  registerReceive t ReqReceive ch@(ChanAddrOut _ addr) = liftIO $
     withMVar (_transportState t) $ \case
       TransportValid v -> do
         req <- newEmptyTMVarIO
@@ -216,7 +235,7 @@ instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
 instance ChannelSend (ChanAddrIn ZMQ.Pub) where
     type SendTransport (ChanAddrIn ZMQ.Pub)   = ZMQTransport
     type SendValue     (ChanAddrIn ZMQ.Pub) a = (ByteString, a)
-    registerSend t (ChanAddrIn addr) = liftIO $ 
+    registerSend t (ChanAddrIn _ addr) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Pub
@@ -234,7 +253,7 @@ instance ChannelSend (ChanAddrIn ZMQ.Pub) where
 instance ChannelSend (ChanAddrIn ZMQ.Push) where
     type SendTransport (ChanAddrIn ZMQ.Push)   = ZMQTransport
     type SendValue     (ChanAddrIn ZMQ.Push) a = a
-    registerSend t (ChanAddrIn addr) = liftIO $
+    registerSend t (ChanAddrIn _ addr) = liftIO $
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Push
@@ -252,7 +271,7 @@ instance ChannelSend (ChanAddrIn ZMQ.Push) where
 instance ChannelSend (ChanAddrIn ZMQ.Req) where
     type SendTransport (ChanAddrIn ZMQ.Req)   = ZMQTransport
     type SendValue     (ChanAddrIn ZMQ.Req) a = (a, a -> IO ())
-    registerSend t ch@(ChanAddrIn addr) = liftIO $ 
+    registerSend t ch@(ChanAddrIn _ addr) = liftIO $ 
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Req
