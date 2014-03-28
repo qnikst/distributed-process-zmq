@@ -28,5 +28,5 @@ fakeTransport :: ByteString -> IO ZMQTransport
 fakeTransport bs = ZMQTransport
   <$> pure bs 
   <*> (newMVar =<< (TransportValid <$> (ValidTransportState <$> ZMQ.context
-                                                            <*> pure Map.empty)))
-
+                                                            <*> pure Map.empty
+                                                            <*> pure Nothing)))
