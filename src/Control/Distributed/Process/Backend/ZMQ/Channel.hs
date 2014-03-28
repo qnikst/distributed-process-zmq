@@ -17,6 +17,8 @@ module Control.Distributed.Process.Backend.ZMQ.Channel
     -- ** Channel pairs
     -- $channel-pairs
     ChannelPair
+  , ChanAddrIn
+  , ChanAddrOut
   , pair
   , singleIn
   , singleOut
@@ -83,14 +85,14 @@ instance (Binary (SocketOut s), Binary a) => Binary (ChanAddrOut s a)
 newtype SocketIn s = SocketIn  { unSocketIn  :: s }
 
 instance Binary (SocketIn ZMQ.Pull) where
-  put = undefined
-  get = undefined
+  put _ = return () 
+  get   = return $ SocketIn ZMQ.Pull
 
 newtype SocketOut a = SocketOut { unSocketOut :: a }
 
 instance Binary (SocketOut ZMQ.Sub) where
-  put = undefined
-  get = undefined
+  put _ = return () 
+  get   = return $ SocketOut ZMQ.Sub
 
 
 mkProxyChIn :: ChanAddrIn x a -> Proxy1 a
@@ -169,7 +171,7 @@ instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
           ZMQ.connect s (B8.unpack addr)
           Foldable.mapM_ (ZMQ.subscribe s) sbs
           tid <- Async.async $ forever $ do
-              lst <- ZMQ.receiveMulti s
+              (_:lst) <- ZMQ.receiveMulti s
               atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
           return . Just $ ReceivePortEx 
             { receiveEx = ReceivePort $ readTQueue q

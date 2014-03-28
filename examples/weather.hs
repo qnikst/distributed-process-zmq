@@ -39,6 +39,8 @@ client transport = do
   records <- replicateM 5 $ receiveChanEx ch
   liftIO $ print records
 
+$(remotable ['server, 'client])
+
 main = do
   zmq             <- fakeTransport "localhost"
   Right transport <- createTransport "localhost" "8232" defaultTCPParameters
