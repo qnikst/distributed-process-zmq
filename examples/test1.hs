@@ -24,7 +24,7 @@ test transport = do
   Just port <- registerSend transport chIn
   replicateM 10 $ spawnLocal $ do
       us <- getSelfPid
-      Just ch <- registerReceive transport (SubReceive ("":|[])) chOut
+      Just ch <- registerReceive transport (SubReceive ("p":|[])) chOut
       x <- try $ replicateM_ 10 $ do
         v  <- receiveChanEx ch
         liftIO $ printf "[%s] %i\n" (show us) (v::Int)
@@ -33,7 +33,8 @@ test transport = do
         Right _ -> return ()
         Left e  -> liftIO $ print (e::SomeException)
   liftIO $ threadDelay 1000000
-  mapM_ (sendEx port) [("", x) | x <- [1..100::Int]]
+  mapM_ (sendEx port) [("p", x) | x <- [1..100::Int]]
+  liftIO $ threadDelay 1000000
   closeSendEx port
   -- Push->Pull                
   liftIO $ putStrLn "PushPull"
@@ -73,7 +74,7 @@ test transport = do
 
 
 main = do
-  zmq             <- fakeTransport "localhost"
+  zmq             <- fakeTransport
   Right transport <- createTransport "localhost" "8232" defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   runProcess node $ test zmq

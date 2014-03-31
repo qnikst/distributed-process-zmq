@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -8,28 +9,27 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
--- | Module provides an extended version of channels based on 
--- network-transport-zmq.
+-- | Module:    Control.Distributed.Process.ChannelEx
+-- Copyright: 2014 (C) EURL Tweag
+-- License:   BSD-3
+-- 
+-- This module provides a channels for different socket types that are
+-- provided by zeromq. For additional information about extended channels
+-- refer to "Control.Distributed.Process.ChannelEx".
 --
 module Control.Distributed.Process.Backend.ZMQ.Channel
   ( 
     -- * Basic API
     -- ** Channel pairs
     -- $channel-pairs
-    ChannelPair
-  , ChanAddrIn
-  , ChanAddrOut
-  , pair
+    pair
+  , PairOptions(..)
   , singleIn
   , singleOut
-  , PairOptions(..)
+  , ChanAddrIn
+  , ChanAddrOut
   , ReceiveOptions(..)
-  , registerSend
-  , registerReceive
-    -- ** Extended functions
-    -- $extended-functions
-  , SendPortEx(..)
-  , receiveChanEx
+  , SocketAddress
   ) where
 
 import qualified Control.Concurrent.Async as Async
@@ -63,7 +63,42 @@ import           Control.Distributed.Process.Backend.ZMQ.Missing
 -- $channel-pairs
 -- Channel pairs provides type safe way to create a pair of sockets 
 -- the instances and handle all internal information that is required
--- to handle such channels.
+-- to handle such channels. Possible patterns:
+--
+--   * 'ZMQ.Pub' -> 'ZMQ.Sub' (Publish Subscribe pattern)
+--   
+-- >    Server: ZMQ.Pub
+-- >    SendType: (ByteString, a) 
+-- >      ByteString is a prefix (channel), clients can filter only messages they are interested in.
+-- >    ReceiveType: a
+-- >    ReceiveOptions: SubReceive Bytestring
+-- >      Set filter for interesting messages where filter string should be a prefix
+--
+--     Publish subscribe pattern has a limitation, as it's mandratory to
+--     have a channel, that will be a first chunk in ZeroMQ messages, so
+--     it's not possible to communicate with external nodes that have
+--     a different aproach.
+--
+--   * 'ZMQ.Push' -> 'ZMQ.Pull' (Load balancing pattern)
+--
+-- >   Server: ZMQ.Push
+-- >   SendType: a
+-- >   ReceiveType: a
+-- >   ReceiveOptions: PullReceive
+--
+--     Load balancing pattern, any message that were send to push socket
+--     will be received by only one client, in a round robin fasion.
+--
+--  * 'ZMQ.Req' -> 'ZMQ.Rep' (Request-reply pattern)
+--
+-- >  Server: ZMQ.Rep
+-- >  SendType:     a -> (a -> IO a)
+-- >  ReceiveType: (a -> IO a) -> IO ()
+-- >  ReceiveOptions: RepReceive
+--
+--    Request reply pattern, that guarantees continuation of the process,
+--    this pattern has following limitations: 1). reply type is the same as
+--    request type, all actions is done in IO, but should be in a process.
 
 instance ChannelPair ZMQ.Pub  ZMQ.Sub
 instance ChannelPair ZMQ.Push ZMQ.Pull
@@ -76,12 +111,18 @@ instance ChannelPair ZMQ.Pair   ZMQ.Pair
 
 type SocketAddress = ByteString
 
+-- | Ticket for input channel.
 data ChanAddrIn  t a = ChanAddrIn  (SocketIn t)  SocketAddress deriving (Generic, Typeable)
-data ChanAddrOut t a = ChanAddrOut (SocketOut t) SocketAddress deriving (Generic, Typeable)
 
 instance (Binary (SocketIn s), Binary a) => Binary (ChanAddrIn s a)
+
+-- | Ticket for output channel. 
+data ChanAddrOut t a = ChanAddrOut (SocketOut t) SocketAddress deriving (Generic, Typeable)
+
 instance (Binary (SocketOut s), Binary a) => Binary (ChanAddrOut s a)
 
+-- | Wrapper for ZeroMQ socket it allows overriding Serialization
+-- properties.
 newtype SocketIn s = SocketIn  { unSocketIn  :: s }
 
 instance Binary (SocketIn ZMQ.Pull) where
@@ -94,42 +135,16 @@ instance Binary (SocketOut ZMQ.Sub) where
   put _ = return () 
   get   = return $ SocketOut ZMQ.Sub
 
-
-mkProxyChIn :: ChanAddrIn x a -> Proxy1 a
-mkProxyChIn _ = Proxy1
-
-mkProxyChOut :: ChanAddrOut x a -> Proxy1 a
-mkProxyChOut _ = Proxy1
-
-data ZMQSocket a = ZMQSocket 
-      { socketState :: MVar (ZMQSocketState a)
-      }
-
-data ZMQSocketState a = ZMQSocketValid  (ValidZMQSocket a)
-                      | ZMQSocketClosed
-
-data ValidZMQSocket a = ValidZMQSocket a
-
-
--- list of serializable sockets
-{-
-instance Binary (ChanAddrIn t a) where
-instance Binary (ChanAddrOut t a) where
-instance Typeable a => Serializable (ChanAddrIn  ZMQ.Push a) where
-instance Typeable a => Serializable (ChanAddrIn  ZMQ.Req  a) where
-instance Typeable a => Serializable (ChanAddrOut ZMQ.Sub  a) where
--}
-
 data PairOptions  = PairOptions
       { poAddress :: Maybe ByteString -- ^ Override transport socket address.
       }
 
 -- | Create socket pair. This function returns a \'tickets\' that can be
--- converted into a real sockets with 'registerSend' or 'registerReceive'.
--- User will have to covert local \'ticket\' into socket immediatelly,
--- so remote side can connect to it.
+-- converted into a real sockets by 'registerSend' or 'registerReceive'
+-- functions. User should covert local (server) \'ticket\' into socket
+-- immediatelly, so remote side can connect to it.
 pair :: ChannelPair t1 t2
-     => (t1, t2)      -- ^ Socket types,
+     => (t1, t2)      -- ^ Socket types.
      -> PairOptions   -- ^ Configuration options.
      -> Process (ChanAddrIn t1 a, ChanAddrOut t2 a)
 pair (si,so) o = case poAddress o of
@@ -137,8 +152,7 @@ pair (si,so) o = case poAddress o of
    Nothing   -> error "Not yet implemented." 
 
 -- | Create output channel, when remote side is outside distributed-process
--- cluster. Serializable restriction says that the return type of socket is
--- a \'client\' for remote server.
+-- cluster. 
 singleOut :: (ChannelPair t1 t2, Serializable (ChanAddrIn t1 a))
           => t1
           -> t2
@@ -147,7 +161,7 @@ singleOut :: (ChannelPair t1 t2, Serializable (ChanAddrIn t1 a))
 singleOut so _ addr = ChanAddrOut (SocketOut so) addr
 
 -- | Create input channel, when remote side is outside distributed-process
--- cluster
+-- cluster.
 singleIn :: (ChannelPair t1 t2, Serializable (ChanAddrOut t2 a))
          => t1
          -> t2
@@ -171,7 +185,9 @@ instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
           ZMQ.connect s (B8.unpack addr)
           Foldable.mapM_ (ZMQ.subscribe s) sbs
           tid <- Async.async $ forever $ do
-              (_:lst) <- ZMQ.receiveMulti s
+              lst <- if ("" :| []) == sbs
+                     then ZMQ.receiveMulti s
+                     else fmap Prelude.tail $ ZMQ.receiveMulti s
               atomically $ writeTQueue q (decodeList' (mkProxyChOut ch) lst)
           return . Just $ ReceivePortEx 
             { receiveEx = ReceivePort $ readTQueue q
@@ -295,6 +311,15 @@ instance ChannelSend (ChanAddrIn ZMQ.Req) where
             }
         TransportClosed -> return Nothing 
 
+-----------------------------------------------------------------------
+-- Misc
+-----------------------------------------------------------------------
+
+mkProxyChIn :: ChanAddrIn x a -> Proxy1 a
+mkProxyChIn _ = Proxy1
+
+mkProxyChOut :: ChanAddrOut x a -> Proxy1 a
+mkProxyChOut _ = Proxy1
 sendInner :: ZMQ.Sender s => ZMQTransport -> ZMQSocket (ZMQ.Socket s) -> NonEmpty ByteString -> IO (Either (TransportError SendErrorCode) ())
 sendInner transport socket msg = withMVar (socketState socket) $ \case
   ZMQSocketValid (ValidZMQSocket s) -> withMVar (_transportState transport) $ \case
@@ -307,12 +332,11 @@ decodeList' _ = decode . BL.fromChunks
 
 encodeListPrefix :: Binary a => [ByteString] -> a -> NonEmpty ByteString
 encodeListPrefix [] x     = encodeList' x
-encodeListPrefix (p:ps) x 
-  | B8.null p = encodeListPrefix ps x
-  | otherwise = p :| (ps++BL.toChunks (encode x))
+encodeListPrefix (p:ps) x = p :| ps ++ BL.toChunks (encode x)
+--  | B8.null p = encodeListPrefix ps x
+--  | otherwise = p :| (ps++BL.toChunks (encode x))
 
 encodeList' :: Binary a => a -> NonEmpty ByteString
 encodeList' x = case BL.toChunks (encode x) of
    [] -> error "encodeList'"
    (b:bs) -> b :| bs
-

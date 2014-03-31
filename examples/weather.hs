@@ -46,7 +46,7 @@ client transport pid end = do
     putMVar end ()
 
 main = do
-  zmq             <- fakeTransport "localhost"
+  zmq             <- fakeTransport
   Right transport <- createTransport "localhost" "8232" defaultTCPParameters
   node <- newLocalNode transport initRemoteTable
   end <- newEmptyMVar
