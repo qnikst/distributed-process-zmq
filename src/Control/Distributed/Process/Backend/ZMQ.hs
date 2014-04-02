@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- | 
--- Module:    Control.Distributed.Process.ChannelEx
+-- Module:    Control.Distributed.Process.Backend.ZMQ
 -- Copyright: 2014 (C) EURL Tweag
 -- License:   BSD-3
 --

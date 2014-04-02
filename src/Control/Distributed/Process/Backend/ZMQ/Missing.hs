@@ -1,5 +1,11 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+-- | 
+-- Module:    Control.Distributed.Process.Backend.ZMQ.Missing
+-- Copyright: 2014 (C) EURL Tweag
+-- License:   BSD-3
+-- 
 -- Module provides missing functionality for the other packages.
 --
 -- All contents of this module will eventually pushed to the other

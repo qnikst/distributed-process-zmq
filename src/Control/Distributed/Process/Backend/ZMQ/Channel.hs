@@ -9,7 +9,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
--- | Module:    Control.Distributed.Process.ChannelEx
+-- | Module:    Control.Distributed.Process.ZMQ.Channel
 -- Copyright: 2014 (C) EURL Tweag
 -- License:   BSD-3
 -- 
@@ -123,13 +123,13 @@ instance (Binary (SocketOut s), Binary a) => Binary (ChanAddrOut s a)
 
 -- | Wrapper for ZeroMQ socket it allows overriding Serialization
 -- properties.
-newtype SocketIn s = SocketIn  { unSocketIn  :: s }
+newtype SocketIn s = SocketIn s
 
 instance Binary (SocketIn ZMQ.Pull) where
   put _ = return () 
   get   = return $ SocketIn ZMQ.Pull
 
-newtype SocketOut a = SocketOut { unSocketOut :: a }
+newtype SocketOut a = SocketOut a
 
 instance Binary (SocketOut ZMQ.Sub) where
   put _ = return () 
