@@ -32,16 +32,14 @@ module Control.Distributed.Process.Backend.ZMQ.Channel
   , SocketAddress
   ) where
 
+import           Control.Monad
+      ( forever )
 import qualified Control.Concurrent.Async as Async
 import           Control.Concurrent.STM
 import           Control.Concurrent.MVar
 import           Control.Distributed.Process
 import           Control.Distributed.Process.Serializable
 import           Control.Distributed.Process.Internal.Types
-import           Control.Monad
-      ( forever 
-      , void
-      )
 import           Data.Binary
 import           Data.ByteString
 import qualified Data.ByteString.Lazy as BL
@@ -54,7 +52,6 @@ import           Data.Typeable
 
 import           GHC.Generics
 import qualified System.ZMQ4 as ZMQ
-import           Network.Transport
 import           Network.Transport.ZMQ.Types
 
 import           Control.Distributed.Process.ChannelEx
@@ -257,14 +254,11 @@ instance ChannelSend (ChanAddrIn ZMQ.Pub) where
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Pub
+          st <- registerSocket v s
           ZMQ.bind s (B8.unpack addr)
-          st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
           return . Just $ SendPortEx
-            { sendEx = \(p,a) -> liftIO $ sendInner t (ZMQSocket st) (encodeListPrefix [p] a)
-            , closeSendEx = liftIO $ do
-                void $ swapMVar st ZMQSocketClosed
-                ZMQ.unbind s (B8.unpack addr)
-                ZMQ.close  s
+            { sendEx = \(p,a) -> liftIO $ sendInner t st (encodeListPrefix [p] a)
+            , closeSendEx = liftIO $ closeSocket t st
             }
         TransportClosed -> return Nothing 
 
@@ -275,14 +269,11 @@ instance ChannelSend (ChanAddrIn ZMQ.Push) where
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Push
+          st <- registerSocket v s
           ZMQ.bind s (B8.unpack addr)
-          st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
           return . Just $ SendPortEx 
-            { sendEx = liftIO . (sendInner t (ZMQSocket st) . encodeList')
-            , closeSendEx = liftIO $ do 
-                void $ swapMVar st ZMQSocketClosed
-                ZMQ.unbind s (B8.unpack addr)
-                ZMQ.close  s
+            { sendEx = liftIO . (sendInner t st . encodeList')
+            , closeSendEx = liftIO $ closeSocket t st
             }
         TransportClosed -> return Nothing 
 
@@ -293,21 +284,18 @@ instance ChannelSend (ChanAddrIn ZMQ.Req) where
       withMVar (_transportState t) $ \case
         TransportValid v -> do
           s <- ZMQ.socket (_transportContext v) ZMQ.Req
+          st <- registerSocket v s
           ZMQ.connect s (B8.unpack addr)
-          st <- newMVar (ZMQSocketValid (ValidZMQSocket s))
           return . Just $ SendPortEx 
             { sendEx = \(a, fa) -> liftIO $ do
-                ex <- sendInner t (ZMQSocket st) (encodeList' a)
+                ex <- sendInner t st (encodeList' a)
                 case ex of 
                   Right _ -> do
                     xbs <- ZMQ.receiveMulti s
                     fa $ decodeList' (mkProxyChIn ch) xbs
                     return $ Right ()
                   Left e -> return $ Left e
-            , closeSendEx = liftIO $ do
-                void $ swapMVar st ZMQSocketClosed
-                ZMQ.disconnect s (B8.unpack addr)
-                ZMQ.close  s
+            , closeSendEx = liftIO $ closeSocket t st
             }
         TransportClosed -> return Nothing 
 
@@ -320,12 +308,7 @@ mkProxyChIn _ = Proxy1
 
 mkProxyChOut :: ChanAddrOut x a -> Proxy1 a
 mkProxyChOut _ = Proxy1
-sendInner :: ZMQ.Sender s => ZMQTransport -> ZMQSocket (ZMQ.Socket s) -> NonEmpty ByteString -> IO (Either (TransportError SendErrorCode) ())
-sendInner transport socket msg = withMVar (socketState socket) $ \case
-  ZMQSocketValid (ValidZMQSocket s) -> withMVar (_transportState transport) $ \case
-    TransportValid{} -> ZMQ.sendMulti s msg >> return (Right ())
-    TransportClosed  -> return $ Left $ TransportError SendFailed "Transport is closed."
-  ZMQSocketClosed  -> return $ Left $ TransportError SendClosed "Socket is closed."
+
 
 decodeList' :: Binary a => Proxy1 a -> [ByteString] -> a
 decodeList' _ = decode . BL.fromChunks

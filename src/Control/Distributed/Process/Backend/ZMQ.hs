@@ -30,6 +30,8 @@ import           Control.Applicative
 import           Control.Concurrent
       ( newMVar 
       )
+import           Data.IORef
+import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
 
 import           Control.Distributed.Process.ChannelEx
@@ -44,7 +46,8 @@ fakeTransport = ZMQTransport
   <$> pure "Simplified version does not have address" 
   <*> (newMVar =<< (TransportValid <$> (ValidTransportState <$> ZMQ.context
                                                             <*> pure Map.empty
-                                                            <*> pure Nothing)))
+                                                            <*> pure Nothing
+                                                            <*> newIORef IntMap.empty)))
 
 -- $channels-doc
 -- For more information on extended channels refer to
