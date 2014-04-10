@@ -13,7 +13,7 @@ import Control.Monad
 import qualified Data.ByteString.Char8 as B8
 import Data.Typeable
 import Data.List.NonEmpty
-import Network.Transport.ZMQ.Types
+import Network.Transport.ZMQ.Internal.Types
 import Network.Transport.TCP
 
 import System.Random

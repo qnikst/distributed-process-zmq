@@ -10,7 +10,7 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Backend.ZMQ
 import Control.Monad
 import Data.List.NonEmpty
-import Network.Transport.ZMQ.Types
+import Network.Transport.ZMQ.Internal.Types
 import Network.Transport.TCP
 
 import System.ZMQ4

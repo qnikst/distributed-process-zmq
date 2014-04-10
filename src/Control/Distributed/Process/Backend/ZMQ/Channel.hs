@@ -52,7 +52,7 @@ import           Data.Typeable
 
 import           GHC.Generics
 import qualified System.ZMQ4 as ZMQ
-import           Network.Transport.ZMQ.Types
+import           Network.Transport.ZMQ.Internal.Types
 
 import           Control.Distributed.Process.ChannelEx
 import           Control.Distributed.Process.Backend.ZMQ.Missing

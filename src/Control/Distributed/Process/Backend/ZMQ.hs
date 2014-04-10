@@ -36,7 +36,7 @@ import qualified Data.Map as Map
 
 import           Control.Distributed.Process.ChannelEx
 import           Control.Distributed.Process.Backend.ZMQ.Channel
-import           Network.Transport.ZMQ.Types
+import           Network.Transport.ZMQ.Internal.Types
 import qualified System.ZMQ4 as ZMQ
 
 -- | Simplified version of ZeroMQ transport, this function can be used when

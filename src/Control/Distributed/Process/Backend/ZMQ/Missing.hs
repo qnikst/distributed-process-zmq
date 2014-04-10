@@ -38,7 +38,7 @@ import           Data.List.NonEmpty
 import           Data.ByteString (ByteString)
 import           Network.Transport
 import           Network.Transport.ZMQ
-import           Network.Transport.ZMQ.Types
+import           Network.Transport.ZMQ.Internal.Types
 
 -- zeromq4-haskell
 deriving instance Typeable ZMQ.Push
