@@ -10,13 +10,13 @@ import Control.Distributed.Process.Node
 import Control.Distributed.Process.Backend.ZMQ
 import Control.Monad
 import Data.List.NonEmpty
-import Network.Transport.ZMQ.Internal.Types
+import Network.Transport.ZMQ.Internal.Types as NTZ
 import Network.Transport.TCP
 
 import System.ZMQ4
 import Text.Printf
 
-test :: ZMQTransport -> Process ()
+test :: NTZ.TransportInternals -> Process ()
 test transport = do
   -- Pub->Sub
   liftIO $ putStrLn "PubSub"
