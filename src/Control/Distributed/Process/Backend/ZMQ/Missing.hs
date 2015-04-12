@@ -41,9 +41,9 @@ import           Network.Transport.ZMQ
 import           Network.Transport.ZMQ.Internal.Types
 
 -- zeromq4-haskell
-deriving instance Typeable ZMQ.Push
-deriving instance Typeable ZMQ.Req
-deriving instance Typeable ZMQ.Sub
+-- deriving instance Typeable ZMQ.Push
+-- deriving instance Typeable ZMQ.Req
+-- deriving instance Typeable ZMQ.Sub
 
 data Proxy1 a = Proxy1
 
@@ -71,15 +71,15 @@ registerSocket zmq sock = do
     void $ swapMVar mvr (ZMQSocketValid (ValidZMQSocket sock u))
     return $ ZMQSocket mvr
 
-closeSocket :: ZMQ.SocketType a => ZMQTransport -> ZMQSocket a -> IO ()
+closeSocket :: ZMQ.SocketType a => TransportInternals -> ZMQSocket a -> IO ()
 closeSocket zmq (ZMQSocket s) = join $ modifyMVar s $ \case
   ZMQSocketValid (ValidZMQSocket _ u) -> return (ZMQSocketClosed, applyCleanupAction zmq u)
   _ -> return (ZMQSocketClosed, return ())
 
 
-sendInner :: ZMQ.Sender s => ZMQTransport -> ZMQSocket s -> NonEmpty ByteString -> IO (Either (TransportError SendErrorCode) ())
+sendInner :: ZMQ.Sender s => TransportInternals -> ZMQSocket s -> NonEmpty ByteString -> IO (Either (TransportError SendErrorCode) ())
 sendInner transport socket msg = withMVar (socketState socket) $ \case
-  ZMQSocketValid (ValidZMQSocket s _) -> withMVar (_transportState transport) $ \case
+  ZMQSocketValid (ValidZMQSocket s _) -> withMVar (transportState transport) $ \case
     TransportValid{} -> ZMQ.sendMulti s msg >> return (Right ())
     TransportClosed  -> return $ Left $ TransportError SendFailed "Transport is closed."
   _ -> return $ Left $ TransportError SendClosed "Socket is closed."

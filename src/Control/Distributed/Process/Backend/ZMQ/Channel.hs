@@ -40,6 +40,7 @@ import           Control.Concurrent.MVar
 import           Control.Distributed.Process
 import           Control.Distributed.Process.Serializable
 import           Control.Distributed.Process.Internal.Types
+import           Data.Accessor ((^.))
 import           Data.Binary
 import           Data.ByteString
 import qualified Data.ByteString.Lazy as BL
@@ -171,14 +172,14 @@ singleIn _ si addr = ChanAddrIn (SocketIn si) addr
 ---------------------------------------------------------------------------------
 
 instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
-  type ReceiveTransport (ChanAddrOut ZMQ.Sub)   = ZMQTransport
+  type ReceiveTransport (ChanAddrOut ZMQ.Sub)   = TransportInternals
   type ReceiveResult    (ChanAddrOut ZMQ.Sub) a = a
   data ReceiveOptions   (ChanAddrOut ZMQ.Sub)   = SubReceive (NonEmpty ByteString)
   registerReceive t (SubReceive sbs) ch@(ChanAddrOut _ addr) = liftIO $
-    withMVar (_transportState t) $ \case
+    withMVar (transportState t) $ \case
       TransportValid v -> do
           q <- newTQueueIO
-          s <- ZMQ.socket (_transportContext v) ZMQ.Sub
+          s <- ZMQ.socket (v^.transportContext) ZMQ.Sub
           ZMQ.connect s (B8.unpack addr)
           Foldable.mapM_ (ZMQ.subscribe s) sbs
           tid <- Async.async $ forever $ do
@@ -196,14 +197,14 @@ instance ChannelReceive (ChanAddrOut ZMQ.Sub) where
       TransportClosed -> return Nothing
 
 instance ChannelReceive (ChanAddrOut ZMQ.Pull) where
-  type ReceiveTransport (ChanAddrOut ZMQ.Pull)   = ZMQTransport
+  type ReceiveTransport (ChanAddrOut ZMQ.Pull)   = TransportInternals
   type ReceiveResult    (ChanAddrOut ZMQ.Pull) a = a
   data ReceiveOptions   (ChanAddrOut ZMQ.Pull)   = PullReceive 
   registerReceive t PullReceive ch@(ChanAddrOut _ addr) = liftIO $
-    withMVar (_transportState t) $ \case
+    withMVar (transportState t) $ \case
       TransportValid v -> do
         q <- newTQueueIO
-        s <- ZMQ.socket (_transportContext v) ZMQ.Pull
+        s <- ZMQ.socket (v ^. transportContext) ZMQ.Pull
         ZMQ.connect s (B8.unpack addr)
         tid <- Async.async $ forever $ do
             lst <- ZMQ.receiveMulti s
@@ -218,15 +219,15 @@ instance ChannelReceive (ChanAddrOut ZMQ.Pull) where
       TransportClosed -> return Nothing
 
 instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
-  type ReceiveTransport (ChanAddrOut ZMQ.Rep)   = ZMQTransport
+  type ReceiveTransport (ChanAddrOut ZMQ.Rep)   = TransportInternals
   type ReceiveResult    (ChanAddrOut ZMQ.Rep) a = (a -> IO a) -> IO ()
   data ReceiveOptions   (ChanAddrOut ZMQ.Rep)   = ReqReceive
   registerReceive t ReqReceive ch@(ChanAddrOut _ addr) = liftIO $
-    withMVar (_transportState t) $ \case
+    withMVar (transportState t) $ \case
       TransportValid v -> do
         req <- newEmptyTMVarIO
         rep <- newEmptyTMVarIO
-        s <- ZMQ.socket (_transportContext v) ZMQ.Rep
+        s <- ZMQ.socket (v ^. transportContext) ZMQ.Rep
         ZMQ.bind s (B8.unpack addr)
         tid <- Async.async $ forever $ do
             lst <- ZMQ.receiveMulti s
@@ -248,12 +249,12 @@ instance ChannelReceive (ChanAddrOut ZMQ.Rep) where
 ---------------------------------------------------------------------------------
 
 instance ChannelSend (ChanAddrIn ZMQ.Pub) where
-    type SendTransport (ChanAddrIn ZMQ.Pub)   = ZMQTransport
+    type SendTransport (ChanAddrIn ZMQ.Pub)   = TransportInternals
     type SendValue     (ChanAddrIn ZMQ.Pub) a = (ByteString, a)
     registerSend t (ChanAddrIn _ addr) = liftIO $ 
-      withMVar (_transportState t) $ \case
+      withMVar (transportState t) $ \case
         TransportValid v -> do
-          s <- ZMQ.socket (_transportContext v) ZMQ.Pub
+          s <- ZMQ.socket (v ^. transportContext) ZMQ.Pub
           st <- registerSocket v s
           ZMQ.bind s (B8.unpack addr)
           return . Just $ SendPortEx
@@ -263,12 +264,12 @@ instance ChannelSend (ChanAddrIn ZMQ.Pub) where
         TransportClosed -> return Nothing 
 
 instance ChannelSend (ChanAddrIn ZMQ.Push) where
-    type SendTransport (ChanAddrIn ZMQ.Push)   = ZMQTransport
+    type SendTransport (ChanAddrIn ZMQ.Push)   = TransportInternals
     type SendValue     (ChanAddrIn ZMQ.Push) a = a
     registerSend t (ChanAddrIn _ addr) = liftIO $
-      withMVar (_transportState t) $ \case
+      withMVar (transportState t) $ \case
         TransportValid v -> do
-          s <- ZMQ.socket (_transportContext v) ZMQ.Push
+          s <- ZMQ.socket (v ^. transportContext) ZMQ.Push
           st <- registerSocket v s
           ZMQ.bind s (B8.unpack addr)
           return . Just $ SendPortEx 
@@ -278,12 +279,12 @@ instance ChannelSend (ChanAddrIn ZMQ.Push) where
         TransportClosed -> return Nothing 
 
 instance ChannelSend (ChanAddrIn ZMQ.Req) where
-    type SendTransport (ChanAddrIn ZMQ.Req)   = ZMQTransport
+    type SendTransport (ChanAddrIn ZMQ.Req)   = TransportInternals
     type SendValue     (ChanAddrIn ZMQ.Req) a = (a, a -> IO ())
     registerSend t ch@(ChanAddrIn _ addr) = liftIO $ 
-      withMVar (_transportState t) $ \case
+      withMVar (transportState t) $ \case
         TransportValid v -> do
-          s <- ZMQ.socket (_transportContext v) ZMQ.Req
+          s <- ZMQ.socket (v^.transportContext) ZMQ.Req
           st <- registerSocket v s
           ZMQ.connect s (B8.unpack addr)
           return . Just $ SendPortEx 
