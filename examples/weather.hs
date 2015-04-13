@@ -13,14 +13,14 @@ import Control.Monad
 import qualified Data.ByteString.Char8 as B8
 import Data.Typeable
 import Data.List.NonEmpty
-import Network.Transport.ZMQ.Internal.Types
+import Network.Transport.ZMQ.Internal.Types as NTZ
 import Network.Transport.TCP
 
 import System.Random
 import qualified System.ZMQ4 as ZMQ
 import Text.Printf
 
-server :: ZMQTransport -> Process ()
+server :: NTZ.TransportInternals -> Process ()
 server transport = forever $ do
     (chIn, chOut) <- pair (ZMQ.Pub, ZMQ.Sub) (PairOptions (Just "tcp://127.0.0.1:5423"))
     Just port <- registerSend transport (chIn :: ChanAddrIn ZMQ.Pub (Int,Int))
@@ -34,7 +34,7 @@ server transport = forever $ do
       pid <- expect
       send pid chOut
 
-client :: ZMQTransport -> ProcessId -> MVar () -> Process ()
+client :: NTZ.TransportInternals -> ProcessId -> MVar () -> Process ()
 client transport pid end = do
   me <- getSelfPid
   send pid me

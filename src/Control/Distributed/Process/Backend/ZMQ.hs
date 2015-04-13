@@ -8,7 +8,8 @@
 -- provides additional functionallity that uses ZeorMQ channels.
 --
 module Control.Distributed.Process.Backend.ZMQ 
-  ( fakeTransport
+  ( 
+  fakeTransport
   -- * Extended channels
   -- $channels-doc
   -- ** Construction
@@ -39,15 +40,14 @@ import           Control.Distributed.Process.Backend.ZMQ.Channel
 import           Network.Transport.ZMQ.Internal.Types
 import qualified System.ZMQ4 as ZMQ
 
+
 -- | Simplified version of ZeroMQ transport, this function can be used when
 -- network-transport-zmq is not used as a distributed-process channel.
-fakeTransport :: IO ZMQTransport
-fakeTransport = ZMQTransport
+fakeTransport :: IO TransportInternals
+fakeTransport = TransportInternals
   <$> pure "Simplified version does not have address" 
-  <*> (newMVar =<< (TransportValid <$> (ValidTransportState <$> ZMQ.context
-                                                            <*> pure Map.empty
-                                                            <*> pure Nothing
-                                                            <*> newIORef IntMap.empty)))
+  <*> (newMVar =<< (ZMQ.context >>= \ctxt -> mkTransportState ctxt Nothing))
+  <*> pure defaultZMQParameters
 
 -- $channels-doc
 -- For more information on extended channels refer to

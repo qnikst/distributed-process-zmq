@@ -18,7 +18,9 @@ library
                        Control.Distributed.Process.ChannelEx
   other-modules:       Control.Distributed.Process.Backend.ZMQ.Missing
   other-extensions:    DeriveDataTypeable
-  build-depends:       base >=4.6 && <4.7, zeromq4-haskell >=0.2 && <0.5,
+  build-depends:       base == 4.*,
+                       data-accessor,
+                       zeromq4-haskell,
                        distributed-process >= 0.4,
                        binary >= 0.7,
                        stm,
@@ -35,7 +37,7 @@ library
 
 executable example1
    main-is:            test1.hs
-   build-depends:      base >= 4.6 && <4.7,
+   build-depends:      base == 4.*,
                        distributed-process >= 0.4,
                        distributed-process-zeromq,
                        network-transport-zeromq,
@@ -48,7 +50,7 @@ executable example1
 
 executable weather
    main-is:            weather.hs
-   build-depends:      base >= 4.6 && <4.7,
+   build-depends:      base == 4.*,
                        distributed-process >= 0.4,
                        distributed-process-zeromq,
                        network-transport-zeromq,
